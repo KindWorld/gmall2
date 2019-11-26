@@ -7,7 +7,9 @@ import com.alibaba.fastjson.JSON
 import com.laz.constant.GmallConstant
 import com.laz.util.{MyKafkaUtil, RedisUtil}
 import org.apache.spark.SparkConf
+import org.apache.spark.streaming.dstream.DStream
 import org.apache.spark.streaming.{Seconds, StreamingContext}
+import redis.clients.jedis.Jedis
 
 object DauApp {
   def main(args: Array[String]): Unit = {
@@ -32,6 +34,7 @@ object DauApp {
     //缓存
     startUpLogDstream.cache()
     //3 利用redis set用户清单进行过滤去重,只保留清单中不存在的用户访问记录
+    ///  .....  driver 周期性的查询redis的清单   通过广播变量发送到executor中
     val filteredDstream = startUpLogDstream.transform {
       rdd => {
         val jedis = RedisUtil.getJedisClient
@@ -41,6 +44,7 @@ object DauApp {
         jedis.close()
         val bc = ssc.sparkContext.broadcast(dauMidSet)
         println("过滤前：" + rdd.count())
+        //executor 根据广播变量 比对 自己的数据  进行过滤
         val filteredRDD = rdd.filter { startuplog => {
           val set = bc.value
           !set.contains(startuplog.mid)
@@ -50,11 +54,39 @@ object DauApp {
         filteredRDD
       }
     }
-    /*4.此时*/
-    filteredDstream.map()
+    /*4.此时只是批次之间没有重复还需要批次内去重*/
+    //  利用redis无法取出 一个批次内的数据 所以 每个 批次要做自查 内部去重 ， 方法：  用mid 进行分组 ，取每组第一
+    val startupGroupbyMidDstream: DStream[(String, Iterable[StartUpLog])] = filteredDstream.map(startuplog=>(startuplog.mid,startuplog)).groupByKey()
+
+    val filtered2Dstream: DStream[StartUpLog] = startupGroupbyMidDstream.flatMap { case (mid, startuplogItr) =>
+      val sortList: List[StartUpLog] = startuplogItr.toList.sortWith { (startuplog1, startuplog2) =>
+        startuplog1.ts < startuplog2.ts
+      }
+      val top1LogList: List[StartUpLog] = sortList.take(1)
+      top1LogList
+    }
+
     /*保存
     * redis保存*/
+    //保存
+    // redis  type :set      key    dau:2019-11-26    value:  mid
+    //set 的写入
+    filtered2Dstream.foreachRDD{rdd=>
+      //driver
+      rdd.foreachPartition{ startupLogItr=>
+        // executor
+        val jedis = RedisUtil.getJedisClient
+        for (startuplog <- startupLogItr ) {
+          println(startuplog)
 
+          val dateKey: String ="dau:"+startuplog.logDate  //executor
+          jedis.sadd(dateKey,startuplog.mid)
+        }
+        jedis.close()
+
+      }
+
+    }
 
     /*启动*/
     ssc.start()
