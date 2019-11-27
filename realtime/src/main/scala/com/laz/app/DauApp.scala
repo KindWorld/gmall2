@@ -37,7 +37,7 @@ object DauApp {
     ///  .....  driver 周期性的查询redis的清单   通过广播变量发送到executor中
     val filteredDstream = startUpLogDstream.transform {
       rdd => {
-        val jedis = RedisUtil.getJedisClient
+        val jedis = new Jedis("hadoop102",6379)
         val date = new SimpleDateFormat("yyyy-MM-dd").format(new Date())
         val key = "dau:" + date
         val dauMidSet = jedis.smembers(key)
@@ -75,7 +75,7 @@ object DauApp {
       //driver
       rdd.foreachPartition{ startupLogItr=>
         // executor
-        val jedis = RedisUtil.getJedisClient
+        val jedis = new Jedis("hadoop102",6379)
         for (startuplog <- startupLogItr ) {
           println(startuplog)
 
