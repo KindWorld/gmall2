@@ -6,6 +6,7 @@ import java.util.Date
 import com.alibaba.fastjson.JSON
 import com.laz.constant.GmallConstant
 import com.laz.util.{MyKafkaUtil, RedisUtil}
+import org.apache.hadoop.conf.Configuration
 import org.apache.spark.SparkConf
 import org.apache.spark.streaming.dstream.DStream
 import org.apache.spark.streaming.{Seconds, StreamingContext}
@@ -37,7 +38,7 @@ object DauApp {
     ///  .....  driver 周期性的查询redis的清单   通过广播变量发送到executor中
     val filteredDstream = startUpLogDstream.transform {
       rdd => {
-        val jedis = new Jedis("hadoop102",6379)
+        val jedis = new Jedis("hadoop102", 6379)
         val date = new SimpleDateFormat("yyyy-MM-dd").format(new Date())
         val key = "dau:" + date
         val dauMidSet = jedis.smembers(key)
@@ -56,7 +57,7 @@ object DauApp {
     }
     /*4.此时只是批次之间没有重复还需要批次内去重*/
     //  利用redis无法取出 一个批次内的数据 所以 每个 批次要做自查 内部去重 ， 方法：  用mid 进行分组 ，取每组第一
-    val startupGroupbyMidDstream: DStream[(String, Iterable[StartUpLog])] = filteredDstream.map(startuplog=>(startuplog.mid,startuplog)).groupByKey()
+    val startupGroupbyMidDstream: DStream[(String, Iterable[StartUpLog])] = filteredDstream.map(startuplog => (startuplog.mid, startuplog)).groupByKey()
 
     val filtered2Dstream: DStream[StartUpLog] = startupGroupbyMidDstream.flatMap { case (mid, startuplogItr) =>
       val sortList: List[StartUpLog] = startuplogItr.toList.sortWith { (startuplog1, startuplog2) =>
@@ -68,24 +69,33 @@ object DauApp {
 
     /*保存
     * redis保存*/
-    //保存
+    //1.保存redis
     // redis  type :set      key    dau:2019-11-26    value:  mid
     //set 的写入
-    filtered2Dstream.foreachRDD{rdd=>
+    filtered2Dstream.foreachRDD { rdd =>
       //driver
-      rdd.foreachPartition{ startupLogItr=>
+      rdd.foreachPartition { startupLogItr =>
         // executor
-        val jedis = new Jedis("hadoop102",6379)
-        for (startuplog <- startupLogItr ) {
+        val jedis = new Jedis("hadoop102", 6379)
+        for (startuplog <- startupLogItr) {
           println(startuplog)
 
-          val dateKey: String ="dau:"+startuplog.logDate  //executor
-          jedis.sadd(dateKey,startuplog.mid)
+          val dateKey: String = "dau:" + startuplog.logDate //executor
+          jedis.sadd(dateKey, startuplog.mid)
         }
         jedis.close()
 
       }
 
+    }
+    // 2.保存到hbase使用fenix保存数据
+    filtered2Dstream.foreachRDD {
+      rdd => {
+        //隐式转换的包
+        import org.apache.phoenix.spark._
+        rdd.saveToPhoenix("GMALL_DAU", Seq("MID", "UID", "APPID", "AREA", "OS", "CH", "TYPE", "VS", "LOGDATE", "LOGHOUR", "TS"),
+          new Configuration(),Some("hadoop102,hadoop103,hadoop104:2181"))
+      }
     }
 
     /*启动*/

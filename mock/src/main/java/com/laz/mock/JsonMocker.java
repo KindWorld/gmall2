@@ -151,12 +151,13 @@ public class JsonMocker {
             while (!jsonMocker.isQuitGroup.getRandomOpt().getValue()) {
                 String eventLog = jsonMocker.initEventLog(startupLog);
                 jsonMocker.sendLog(eventLog);
+                try {
+                    Thread.sleep(10);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
             }
-            try {
-                Thread.sleep(20);
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-            }
+
         }
 
 

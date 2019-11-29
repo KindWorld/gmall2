@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper SYSTEM "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
+<mapper namespace="com.laz.publisher.mapper.DauMapper">
+<!--dau日活总数-->
+    <select id="getDauTotal" resultType="Long">
+        SELECT count (*) ct from gmall_dau where logdate=#{date}
+    </select>
+
+<!-- 分时数据-->
+    <resultMap id="dauResultMap" type="Map">
+        <result property="loghour" column="LOGHOUR"></result>
+        <result property="ct" column="CT"/>
+    </resultMap>
+    <select id="getDauHour" resultMap="dauResultMap">
+        select LOGHOUR,count (*) CT from gmall_dau
+        where LOGDATE=#{date}
+        group by LOGHOUR
+    </select>
+</mapper>
