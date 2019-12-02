@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper SYSTEM "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
+<mapper namespace="com.laz.publisher.mapper.OrderMapper">
+    <select id="getOrderAmount" resultType="Double">
+        select sum(total_amount)order_amount
+        from order_info
+        where create_date=#{date}
+    </select>
+    <select id="getOrderAmountHour" resultMap="orderRM">
+        select create_hour,sum(total_amount)order_amount from order_info
+        where create_date=#{date}
+        group by create_hour
+    </select>
+    <resultMap id="orderRM" type="Map" autoMapping="true">
+        <!--如果映射的字段和属性名一样,可以利用autoMapping自动映射
+        <result column="CREATE_HOUR" property="CREATE_HOUR"/>
+        <result column="ORDER_AMOUNT" property="ORDER_AMOUNT"/>-->
+    </resultMap>
+</mapper>
